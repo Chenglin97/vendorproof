@@ -2,9 +2,9 @@
 
 **An Exa-powered vendor-diligence agent for financial services.**
 
-> **Live demo:** _‹deploy to Vercel and paste the URL here — it opens directly in zero-config sample mode›_  ·  **Demo video (<60s):** _‹link›_  ·  **Strategy memo:** [STRATEGY.md](./STRATEGY.md)  ·  **Repo:** `github.com/Chenglin97/vendorproof`
+> **Live demo:** **https://vendorproof-chenglin-wei-projects.vercel.app**  ·  **Demo video (<60s):** _‹link›_  ·  **Strategy memo:** [STRATEGY.md](./STRATEGY.md)  ·  **Repo:** `github.com/Chenglin97/vendorproof`
 >
-> **Evaluate in 2 minutes:** open the live demo → click **“Try the Intercom sample”** → skim the verification matrix → click any evidence chip to open the cited source. No keys, no setup.
+> **Evaluate in 2 minutes:** open the live demo → type any vendor (or click **“Try the Intercom sample”**) → skim the verification matrix → click any evidence chip to open the cited source. It runs **live Exa diligence** out of the box; no keys, no setup.
 >
 > The strategy thinking behind the build (challenges, product needs, Exa's data moat & TAM, sales barriers) is in **[STRATEGY.md](./STRATEGY.md)**.
 
