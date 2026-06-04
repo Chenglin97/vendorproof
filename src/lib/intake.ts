@@ -123,6 +123,34 @@ export async function discoverVendor(apiKey: string, vendor: string): Promise<Ve
 
 const CLAIM_HINTS = /(enterprise|secur|complian|soc ?2|iso ?27001|gdpr|hipaa|encrypt|integrat|real-?time|low-?latency|scal|trusted by|reduce|increase|improve|automat|fastest|leading|99\.9|uptime|sla|multilingual|ai-?powered|no-?code|self-?serve|api)/i;
 
+/** Parse Exa Answer prose into clean claim lines: strip numbering, [n] citation
+ *  markers, bullets, and any "Vendor makes the following…" preamble. */
+function parseClaimLines(text: string, vendor: string): string[] {
+  const v = vendor.toLowerCase();
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of (text || "").split("\n")) {
+    let s = raw
+      .replace(/\[\d+\]/g, "")
+      .replace(/^\s*(\d+[.)]|[-*•—])\s*/, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/[.;:]+$/, "")
+      .trim();
+    if (s.length < 8 || s.length > 120) continue;
+    const low = s.toLowerCase();
+    if (/(following|here are|claims?:?$|^below|in summary)/.test(low)) continue;
+    if (low.startsWith(v) && /(make|claim|offer|state|provide)s?\b/.test(low)) continue;
+    if (!/[a-z]/.test(s)) continue;
+    const key = low.slice(0, 40);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
 export interface ClaimDiscovery {
   claims: string[];
   sources: { title: string; url: string }[];
@@ -160,26 +188,21 @@ export async function discoverClaims(apiKey: string, vendor: string, domain: str
   }
   const sources = results.slice(0, 6).map((r) => ({ title: r.title ?? hostOf(r.url), url: r.url }));
 
-  // Optional Claude extraction over the scraped text.
-  if (hasLLM()) {
-    const corpus = results
-      .slice(0, 6)
-      .map((r) => `# ${r.title} (${hostOf(r.url)})\n${(r.highlights ?? []).join(" ")} ${(r.text ?? "").slice(0, 700)}`)
-      .join("\n\n")
-      .slice(0, 6000);
-    const out = await callClaude(
-      `From the vendor's own marketing/site text below, extract the 4-6 most important capability, security, or business claims ${vendor} makes about ITSELF. Each claim must be a short, specific, independently verifiable statement (max 12 words). Do not include fluff. ${INJECTION_GUARD}\n\n<UNTRUSTED_WEB_CONTENT>\n${corpus}\n</UNTRUSTED_WEB_CONTENT>\n\nReturn ONLY a JSON array of strings.`,
-      800,
+  // Primary extraction: Exa's own Answer API (live search + cited synthesis)
+  // turns the vendor's pages into specific claims — the whole stack stays on
+  // Exa, no third-party LLM. Falls through to the heuristic if it returns little.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ans: any = await withTimeout(
+      (exa as { answer: (q: string) => Promise<{ answer?: string }> }).answer(
+        `What are the 4 to 6 most important product, capability, and security claims that ${vendor} (${root || domain}) makes about itself? Respond with ONLY the claims — one per line, each a short specific statement under 12 words, no numbering, no citations, no introduction.`,
+      ),
+      30_000,
     );
-    if (out) {
-      try {
-        const arr = JSON.parse(out.slice(out.indexOf("["), out.lastIndexOf("]") + 1));
-        const claims = (arr as unknown[]).map((s) => String(s).trim()).filter(Boolean).slice(0, 6);
-        if (claims.length >= 2) return { claims, sources };
-      } catch {
-        /* fall through */
-      }
-    }
+    const extracted = parseClaimLines(String(ans?.answer ?? ""), vendor);
+    if (extracted.length >= 3) return { claims: extracted.slice(0, 6), sources };
+  } catch {
+    /* fall through to heuristic */
   }
 
   // Heuristic extraction: claim-like sentences from highlights/text.
