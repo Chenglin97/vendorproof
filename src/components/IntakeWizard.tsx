@@ -130,6 +130,16 @@ export function IntakeWizard({
 
   return (
     <div className="mx-auto max-w-[720px] px-5 py-8 vp-fade-up">
+      {step === 1 && (
+        <div className="mb-6">
+          <div className="eyebrow">Exa · FSI vendor diligence</div>
+          <p className="text-[13px] leading-relaxed mt-1.5" style={{ color: "var(--ink-2)" }}>
+            Built for <span style={{ color: "var(--ink)", fontWeight: 500 }}>bank, fintech &amp; insurer vendor-risk, procurement, and compliance teams</span> —
+            verify what a vendor claims against live web evidence before you buy.{" "}
+            <span style={{ color: "var(--ink-3)" }}>Doubles as a live Exa demo surface for AE/FDE teams.</span>
+          </p>
+        </div>
+      )}
       <Stepper step={step} />
 
       {/* ─────────────── STEP 1 ─────────────── */}
