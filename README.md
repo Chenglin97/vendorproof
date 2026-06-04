@@ -2,9 +2,11 @@
 
 **An Exa-powered vendor-diligence agent for financial services.**
 
-> **Live demo:** _‹deploy to Vercel and paste the URL here — it opens directly in zero-config sample mode›_  ·  **Demo video (<60s):** _‹link›_  ·  **Repo:** `github.com/Chenglin97/vendorproof`
+> **Live demo:** _‹deploy to Vercel and paste the URL here — it opens directly in zero-config sample mode›_  ·  **Demo video (<60s):** _‹link›_  ·  **Strategy memo:** [STRATEGY.md](./STRATEGY.md)  ·  **Repo:** `github.com/Chenglin97/vendorproof`
 >
 > **Evaluate in 2 minutes:** open the live demo → click **“Try the Intercom sample”** → skim the verification matrix → click any evidence chip to open the cited source. No keys, no setup.
+>
+> The strategy thinking behind the build (challenges, product needs, Exa's data moat & TAM, sales barriers) is in **[STRATEGY.md](./STRATEGY.md)**.
 
 When a bank, fintech, or insurer evaluates a vendor, they can't take a marketing page at face value. VendorProof uses [Exa](https://exa.ai)'s live web search to **verify what a vendor claims against real public evidence**, compare them to competitors, surface risk flags, and produce an evidence-backed negotiation brief — every insight linked to a citable source.
 
