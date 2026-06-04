@@ -116,7 +116,15 @@ export async function discoverClaims(apiKey: string, vendor: string, domain: str
   } as Parameters<typeof exa.searchAndContents>[1]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const results: any[] = (res?.results ?? []).filter((r: any) => r?.url);
+  let results: any[] = (res?.results ?? []).filter((r: any) => r?.url);
+  // Hard-lock to the vendor's own domain. Exa's includeDomains can be loose
+  // (other "<x>ramp.com" companies leak in), so we filter by exact host here.
+  // A vendor's homepage alone carries plenty of claim text.
+  if (root) {
+    const isOwn = (h: string) => h === root || h.endsWith("." + root);
+    const own = results.filter((r) => isOwn(hostOf(r.url)));
+    if (own.length > 0) results = own;
+  }
   const sources = results.slice(0, 6).map((r) => ({ title: r.title ?? hostOf(r.url), url: r.url }));
 
   // Optional Claude extraction over the scraped text.
@@ -150,9 +158,19 @@ export async function discoverClaims(apiKey: string, vendor: string, domain: str
   const seen = new Set<string>();
   const claims: string[] = [];
   for (const raw of blobs) {
-    const s = raw.trim().replace(/\s+/g, " ");
-    if (s.length < 18 || s.length > 120) continue;
+    // Strip markdown noise (headers, list markers, links, images).
+    let s = raw
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1") // [text](url) / images
+      .replace(/[#>*_`|]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    s = s.replace(/^[-•–]\s*/, "");
+    const words = s.split(/\s+/);
+    if (words.length < 5 || words.length > 18) continue; // reject fragments & headers
+    if (s.length < 22 || s.length > 130) continue;
     if (!CLAIM_HINTS.test(s)) continue;
+    if (/^[A-Z][a-zA-Z]+ (is|was) (a|an|the) /.test(s)) continue; // "X is a company" boilerplate
+    if (!/[a-z]/.test(s)) continue; // all-caps nav/headers
     const key = s.toLowerCase().slice(0, 40);
     if (seen.has(key)) continue;
     seen.add(key);
