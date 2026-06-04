@@ -7,8 +7,8 @@ Vendor: **Intercom** (the assignment's example; verified to produce a clean resu
 
 ## Pre-flight (2 minutes)
 
-1. Dev server running with the Exa key: `npm run dev -- -p 3019` (it's already up).
-2. **Hard-reload** `http://localhost:3019` so the header reads **“Live Exa”** (not a stale “Sample mode”).
+1. Dev server running with the Exa key: `npm run dev` (defaults to port 3000; any port is fine).
+2. **Hard-reload** the app so the header reads **“Live Exa”** (not a stale “Sample mode”).
 3. Browser window ~**1280×800**, zoom 100%, hide bookmarks bar, turn on Do Not Disturb (no notification popups).
 4. **Do one full dry run first** — Exa is live, so results vary slightly run-to-run. If a run looks off, just re-run; expect ~**77 / Strong**.
 5. Recorder: `Cmd+Shift+5` (built-in) or [Screen Studio](https://screen.studio) for auto-zoom polish. Record the browser window only.

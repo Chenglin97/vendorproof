@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "start": "next start"
+  },
+  "engines": {
+    "node": ">=18.18"
   },
   "dependencies": {
     "exa-js": "^1.5.13",
