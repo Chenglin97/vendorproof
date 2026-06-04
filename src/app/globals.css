@@ -123,6 +123,29 @@ body {
   box-shadow: var(--sh-focus);
 }
 
+/* form controls */
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: var(--r-sm);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-4);
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  border-color: var(--accent-line);
+  box-shadow: var(--sh-focus);
+  outline: none;
+}
+
 /* keyframes */
 @keyframes vp-fade-up {
   from {
