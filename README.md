@@ -21,12 +21,19 @@ Give it a vendor, the claims to verify, and (optionally) competitors and buyer c
 
 Every cell in the matrix opens an **evidence drawer** with the real source title, URL, Exa highlight, and the claim it tests.
 
-### Screens
+### A guided, AI-assisted intake
+
+The setup is a **three-step wizard**, not a blank form — Exa does the legwork:
+
+1. **Vendor** — type a name; Exa finds the official site, a one-line description, and category from the live web. Confirm it, pick from alternative matches, or edit the domain manually.
+2. **Claims** — Exa scrapes the vendor's *own* pages and proposes the claims to verify. Edit, remove, or add — each becomes one verification search. (If it can't extract specific claims, it says so and offers editable placeholders rather than faking them.)
+3. **Compare** — optionally add competitors (with Exa-suggested ones) and your buying context, then run.
+
+### Result screens
 
 | Screen | What it shows |
 |---|---|
-| **Diligence Setup** | Vendor, domain, category, buyer context, editable claim list, competitors. One-click sample data. A live Exa request preview (query count, scope, est. cost/latency). |
-| **Claim Verification** | Proof score, claim coverage, risk flags, the verification matrix (filterable), and the competitor comparison. |
+| **Claim Verification** | Proof score, claim coverage, risk flags, the verification matrix (filterable), and the competitor comparison. Every evidence chip opens a drawer with the real source title, URL, Exa highlight, and the claim it tests. |
 | **Levers & Brief** | Negotiation levers built from the evidence gaps, questions to ask, and a copy-ready procurement summary. |
 | **Exa Integration** | The agent flow, the representative Exa request/response, the agent-handoff JSON, and a drop-in `verifyClaim()` snippet. |
 
@@ -42,9 +49,9 @@ cp .env.example .env.local   # optional — see below
 npm run dev
 ```
 
-Open **http://localhost:3000** and click **“Load sample (Intercom)” → “Run verification with Exa.”**
+Open **http://localhost:3000** and click **“Try the Intercom sample”** on step 1.
 
-> The app runs in **sample mode with zero configuration**, so it always demos. Add an Exa key to run live diligence on any vendor.
+> The app runs in **sample mode with zero configuration**, so it always demos. Add an Exa key to run live diligence on any vendor; add a Claude key for vendor-specific claim extraction and sharper verdicts.
 
 ### Environment variables
 
@@ -63,16 +70,16 @@ ANTHROPIC_API_KEY set .... Claude grades the evidence
 ANTHROPIC_API_KEY absent . deterministic heuristic analysis
 ```
 
-The Exa key is read only inside the server route (`src/app/api/verify/route.ts` → `src/lib/engine.ts`). It is never bundled into client code.
+The Exa key is read only inside the server routes (`src/app/api/{verify,discover,claims}/route.ts` → `src/lib/{engine,intake}.ts`). It is never bundled into client code. The paid routes are rate-limited per IP (`src/middleware.ts`) so an unthrottled endpoint can't run up your Exa/Claude bill.
 
 ---
 
 ## Demo script (under 60 seconds)
 
-1. **Open the app.** First screen is the working tool — the diligence setup, not a landing page.
-2. **Click “Load sample (Intercom).”** A regional bank is evaluating Intercom as an AI customer-support vendor. Four claims load (enterprise-grade AI support, secure & compliant, integrates with CRM, reduces support volume) plus competitors Zendesk, Salesforce Service Cloud, and Ada.
-3. **Point at the request preview** (the dark card): *“One Exa search per claim, scoped to the vendor’s own domain plus the open web — with cost and latency up front.”*
-4. **Click “Run verification with Exa.”** The staged loader shows the agent searching the live web, retrieving contents, classifying evidence, and scoring.
+1. **Open the app.** First screen is the working tool — step 1 of the diligence wizard, not a landing page.
+2. **Click “Try the Intercom sample.”** Exa "discovers" Intercom — official site, description, category — and you confirm. *(With a key, type any vendor; this happens live.)*
+3. **Confirm & find claims.** Exa scrapes Intercom's own pages and proposes the claims: enterprise-grade AI support, secure & compliant, CRM integration, reduces support volume. Add Zendesk / Salesforce / Ada as competitors, then **Run verification.**
+4. **Watch the staged loader** — searching the live web (one search per claim), retrieving contents, classifying evidence, scoring.
 5. **Land on the matrix.** Proof score **74 — Strong baseline.** Three claims verified, one partial. *“Intercom clears security, CRM integration, and AI maturity with citable public pages — but there’s no named **regulated-FSI** reference customer, and the resolution-rate claim is vendor-reported.”*
 6. **Click an evidence chip.** The drawer opens the real source — Intercom’s trust center / customer page — with the Exa highlight and the claim it tests. *“Every verdict is grounded in a real URL.”*
 7. **Open “Levers & Brief.”** *“The gaps become negotiation leverage: prove the resolution rate on our own data, require named FSI references, cap usage-based pricing.”* Hit **Copy for CRM.**
@@ -116,18 +123,23 @@ Without env vars set, the deployment still works — it serves sample mode. Add 
 ```
 src/
   app/
-    page.tsx                 # client orchestrator: setup → loading → results
+    page.tsx                 # client orchestrator: wizard → loading → results
+    api/discover/route.ts    # POST: name → official site + description (intake step 1)
+    api/claims/route.ts      # POST: vendor+site → claims scraped from their pages (step 2)
     api/verify/route.ts      # POST: runs diligence; GET: reports mode (no key leak)
     layout.tsx, globals.css  # Geist + JetBrains Mono, design tokens
+  middleware.ts              # per-IP rate limit + body-size guard on the paid routes
   instrumentation.ts         # neutralizes Node 25's broken global localStorage in SSR
   lib/
     exa.ts                   # server-only Exa client + targeted query plan
+    intake.ts                # vendor discovery + claim scraping (the two AI intake steps)
     analyze.ts               # deterministic heuristic analyzer (no-LLM fallback)
     llm.ts                   # optional Claude refinement over the same real evidence
     engine.ts                # orchestrator + graceful fallback + handoff/CRM builders
+    domain.ts                # shared domain normalization + vendor-domain test
     sample.ts                # curated Intercom diligence (keyless demo)
     types.ts                 # shared shapes (the agent-ready payload)
-  components/                # SetupForm, ResultsView, ClaimVerification, LeversBrief,
+  components/                # IntakeWizard, ResultsView, ClaimVerification, LeversBrief,
                              # Integration, EvidenceDrawer, Shell, ui
 ```
 
