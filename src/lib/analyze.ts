@@ -38,12 +38,13 @@ function classifyType(r: RawResult, vendorRoot: string, competitorNames: string[
   return r.intent;
 }
 
-function stanceOf(r: RawResult, type: EvidenceType): Stance {
+function stanceOf(r: RawResult, type: EvidenceType, isVendor: boolean): Stance {
   const blob = `${r.highlight} ${r.summary} ${r.text}`.slice(0, 600);
   const neg = NEG.test(blob);
   const pos = POS.test(blob);
-  // Vendor's own authoritative pages lean supportive of the matching claim.
-  if ((type === "security" || type === "docs" || type === "casestudy") && pos && !neg) return "support";
+  // A vendor's own page asserting capability is primary support, unless it
+  // explicitly contradicts (rare on a vendor's own site).
+  if (isVendor && !neg) return "support";
   if (type === "review" && neg) return "refute";
   if (neg && !pos) return "refute";
   if (pos && !neg) return "support";
@@ -63,8 +64,18 @@ function authorLabel(type: EvidenceType, domain: string, vendorRoot: string): st
   }
 }
 
+function clean(s: string): string {
+  // Strip markdown headers, list markers, links/images, and pipes that Exa's
+  // company-profile summaries often include, then collapse whitespace.
+  return (s || "")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[#>*_`|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function firstSentence(s: string, fallback: string): string {
-  const t = (s || "").trim();
+  const t = clean(s);
   if (!t) return fallback;
   const m = t.match(/^.*?[.!?](\s|$)/);
   return (m ? m[0] : t).slice(0, 220).trim();
@@ -96,8 +107,9 @@ export function analyzeHeuristic(req: DiligenceRequest, raw: RawResult[]): Heuri
     .sort((a, b) => b.score - a.score)
     .map((r, i) => {
       const type = classifyType(r, vendorRoot, req.competitors);
-      const stance = stanceOf(r, type);
-      const snippet = (r.highlight || r.summary || r.text || "").trim().slice(0, 280);
+      const isVendor = Boolean(vendorRoot) && (r.domain === vendorRoot || r.domain.endsWith("." + vendorRoot));
+      const stance = stanceOf(r, type, isVendor);
+      const snippet = clean(r.highlight || r.summary || r.text || "").slice(0, 280);
       return {
         id: `e${i + 1}`,
         claimId: r.claimIndex !== null ? `c${r.claimIndex + 1}` : null,
@@ -147,6 +159,11 @@ export function analyzeHeuristic(req: DiligenceRequest, raw: RawResult[]): Heuri
     const support = ev.filter((e) => e.stance === "support");
     const refute = ev.filter((e) => e.stance === "refute");
     const topRel = ev.reduce((m, e) => Math.max(m, e.relevance), 0);
+    // Is this a self-documenting claim (security / docs / pricing), where the
+    // vendor's own page is the primary source of truth?
+    const want = intentForClaim(text);
+    const selfDocumenting = want === "security" || want === "docs" || want === "pricing";
+    const vendorSupport = support.filter((e) => e.author.startsWith("Vendor"));
 
     let verdict: Verdict;
     let confidence: Confidence;
@@ -156,9 +173,11 @@ export function analyzeHeuristic(req: DiligenceRequest, raw: RawResult[]): Heuri
     } else if (refute.length > support.length && refute.length >= 1) {
       verdict = "contradicted";
       confidence = refute.length >= 2 ? "High" : "Medium";
-    } else if (support.length >= 2 && refute.length === 0 && topRel >= 0.6) {
+    } else if ((selfDocumenting && vendorSupport.length >= 1 && refute.length === 0) || (support.length >= 2 && refute.length === 0)) {
+      // Self-documenting claim backed by the vendor's own authoritative page,
+      // or independently corroborated by 2+ sources.
       verdict = "verified";
-      confidence = support.length >= 3 ? "High" : "Medium";
+      confidence = support.length >= 2 && topRel >= 0.55 ? "High" : "Medium";
     } else if (support.length >= 1) {
       verdict = "partial";
       confidence = "Medium";

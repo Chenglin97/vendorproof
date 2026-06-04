@@ -45,7 +45,6 @@ export function buildQueryPlan(req: DiligenceRequest): PlannedQuery[] {
       claimIndex: i,
       intent: claimIntent(claim),
       query: `${vendor} ${claim}`,
-      category: "company",
       includeDomains: vendorDomains,
       numResults: 6,
     });
@@ -57,7 +56,6 @@ export function buildQueryPlan(req: DiligenceRequest): PlannedQuery[] {
     claimIndex: null,
     intent: "security",
     query: `${vendor} security compliance SOC 2 ISO 27001 enterprise trust center`,
-    category: "company",
     includeDomains: vendorDomains,
     numResults: 5,
   });
@@ -73,7 +71,6 @@ export function buildQueryPlan(req: DiligenceRequest): PlannedQuery[] {
     claimIndex: null,
     intent: "pricing",
     query: `${vendor} pricing enterprise plans cost`,
-    category: "company",
     includeDomains: vendorDomains,
     numResults: 4,
   });
@@ -82,7 +79,6 @@ export function buildQueryPlan(req: DiligenceRequest): PlannedQuery[] {
     claimIndex: null,
     intent: "docs",
     query: `${vendor} documentation API integration CRM deployment security`,
-    category: "company",
     includeDomains: vendorDomains,
     numResults: 4,
   });
@@ -229,13 +225,33 @@ export async function runExaPlan(
   );
 
   // Flatten successful queries; tolerate partial failures.
-  const flat: RawResult[] = [];
+  let flat: RawResult[] = [];
   for (const s of settled) {
     if (s.status === "fulfilled") flat.push(...s.value);
   }
 
   if (flat.length === 0) {
     throw new Error("Exa returned no usable results for any query in the plan.");
+  }
+
+  // Drop same-name impostor companies. Exa's includeDomains is loose, so a
+  // vendor like "Ramp" pulls in LiveRamp / IdRamp / FilingRamp. We keep the
+  // vendor's own domain and legitimate third parties (g2, news, competitors),
+  // but drop any *other* registrable domain that contains the vendor's name
+  // token in its host — those are almost always different companies.
+  const root = rootDomain(req.domain || "");
+  const token = req.vendor.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const competitorTokens = req.competitors.map((c) => c.toLowerCase().replace(/[^a-z0-9]/g, "")).filter((t) => t.length >= 3);
+  if (token.length >= 4) {
+    const kept = flat.filter((r) => {
+      const h = r.domain.toLowerCase();
+      const hostKey = h.replace(/[^a-z0-9]/g, "");
+      if (root && (h === root || h.endsWith("." + root))) return true; // vendor's own
+      if (competitorTokens.some((t) => hostKey.includes(t))) return true; // a competitor's own site
+      if (hostKey.includes(token)) return false; // same-name impostor domain
+      return true; // legitimate third party
+    });
+    if (kept.length > 0) flat = kept;
   }
 
   // Dedupe by URL, keeping the highest-scoring occurrence but preserving the
