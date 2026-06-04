@@ -20,6 +20,29 @@ import type {
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
+export function hasLLM(): boolean {
+  return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+}
+
+/** Single Claude call. Returns the text, or null on no-key / any failure. */
+export async function callClaude(prompt: string, maxTokens = 1500): Promise<string | null> {
+  const key = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!key) return null;
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data?.content?.[0]?.text as string) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 interface LlmAnalysis {
   proofScore: number;
   proofBand: "Strong" | "Mixed" | "Weak";
@@ -100,28 +123,9 @@ export async function refineWithLLM(
   req: DiligenceRequest,
   evidence: Evidence[],
 ): Promise<(Omit<HeuristicOutput, "evidence"> & { stance: Record<string, string> }) | null> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return null;
-
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 4000,
-        messages: [{ role: "user", content: buildPrompt(req, evidence) }],
-      }),
-      // Abort if Anthropic is slow so the request still returns.
-      signal: AbortSignal.timeout(45_000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const text: string = data?.content?.[0]?.text ?? "";
+    const text = await callClaude(buildPrompt(req, evidence), 4000);
+    if (!text) return null;
     const parsed = extractJson(text) as LlmAnalysis;
 
     // Validate the core shape; bail to heuristic on anything off.

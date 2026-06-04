@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { Shell, LoadingState } from "@/components/Shell";
-import { SetupForm } from "@/components/SetupForm";
+import { IntakeWizard } from "@/components/IntakeWizard";
 import { ResultsView } from "@/components/ResultsView";
 import { Card, Button, Icons } from "@/components/ui";
 import type { DiligenceRequest, DiligenceResult } from "@/lib/types";
@@ -76,7 +76,7 @@ export default function Page() {
         </div>
       )}
 
-      {view === "setup" && <SetupForm onRun={run} loading={false} liveMode={liveMode} llm={llm} />}
+      {view === "setup" && <IntakeWizard onRun={run} liveMode={liveMode} />}
       {view === "loading" && <LoadingState vendor={pending?.vendor ?? ""} claims={pending?.claims ?? []} />}
       {view === "results" && result && <ResultsView result={result} onReset={reset} />}
     </Shell>
