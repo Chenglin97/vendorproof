@@ -45,9 +45,9 @@ export async function discoverVendor(apiKey: string, vendor: string): Promise<Ve
   const exa = new Exa(apiKey);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withTimeout(
-    exa.searchAndContents(`${vendor} official company website product`, {
+    exa.searchAndContents(`${vendor} official website homepage`, {
       type: "auto",
-      numResults: 8,
+      numResults: 10,
       category: "company",
       text: { maxCharacters: 700 },
       summary: { query: `In one sentence, what does ${vendor} do, and what product category is it?` },
@@ -59,10 +59,27 @@ export async function discoverVendor(apiKey: string, vendor: string): Promise<Ve
   const results: any[] = (res?.results ?? []).filter((r: any) => r?.url);
   const official = results.filter((r) => !NON_OFFICIAL.test(hostOf(r.url)));
   const token = vendor.toLowerCase().replace(/[^a-z0-9]/g, "");
+  // Rank official results so an exact name match wins: brex.com (name "brex")
+  // beats brexa.ai (name "brexa") for vendor "Brex". Falls back to Exa's score.
+  const nameScore = (r: { url: string }): number => {
+    const host = hostOf(r.url);
+    const name = host.split(".")[0].replace(/[^a-z0-9]/g, "");
+    const hostKey = host.replace(/[^a-z0-9]/g, "");
+    if (name === token) return 4;
+    if (name.startsWith(token) || token.startsWith(name)) return 3;
+    if (hostKey.includes(token)) return 2;
+    return 1;
+  };
+  // Prefer the canonical TLD when name scores tie (brex.com over brex.vc).
+  const tldScore = (r: { url: string }): number => {
+    const tld = hostOf(r.url).split(".").pop() || "";
+    return tld === "com" ? 3 : ["io", "ai", "co", "app", "dev"].includes(tld) ? 2 : 1;
+  };
   // Only an OFFICIAL (non-aggregator) result may become the domain. If every
-  // result is wikipedia/linkedin/etc., leave the domain blank for manual entry
-  // rather than adopting an aggregator as the vendor's site.
-  const officialBest = official.find((r) => hostOf(r.url).replace(/[^a-z0-9]/g, "").includes(token)) || official[0];
+  // result is wikipedia/linkedin/etc., leave the domain blank for manual entry.
+  const officialBest = [...official].sort(
+    (a, b) => nameScore(b) - nameScore(a) || tldScore(b) - tldScore(a) || (b.score ?? 0) - (a.score ?? 0),
+  )[0];
   const best = officialBest || results[0];
   const domain = officialBest ? hostOf(officialBest.url) : "";
   let description = firstSentence(best?.summary || best?.text || "");
