@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button, Card, Chip, Icons, Spinner, cx } from "./ui";
 import type { DiligenceRequest } from "@/lib/types";
 
@@ -50,6 +50,7 @@ export function IntakeWizard({
   const [scraping, setScraping] = useState(false);
   const [claims, setClaims] = useState<string[]>([]);
   const [claimSources, setClaimSources] = useState<{ title: string; url: string }[]>([]);
+  const [claimsSynthesized, setClaimsSynthesized] = useState(false);
 
   // step 3
   const [competitors, setCompetitors] = useState<string[]>([]);
@@ -58,8 +59,25 @@ export function IntakeWizard({
 
   const sample = disc?.mode === "sample";
 
+  // Changing the vendor name invalidates everything discovered/scraped for the
+  // previous identity — reset downstream state so we never carry stale claims,
+  // sources, or a mismatched domain into the next step.
+  const onVendorChange = (v: string) => {
+    setVendor(v);
+    if (disc && v.trim() !== disc.name) {
+      setDisc(null);
+      setEditingSite(false);
+      setClaims([]);
+      setClaimSources([]);
+      setClaimsSynthesized(false);
+      setCompetitors([]);
+      setCompInput("");
+    }
+  };
+
   // ── step 1: find ──
   const findVendor = async (name?: string) => {
+    if (finding) return; // guard against double-submit (Enter + click)
     const v = (name ?? vendor).trim();
     if (!v) return;
     setVendor(v);
@@ -95,6 +113,7 @@ export function IntakeWizard({
       const d = await r.json();
       setClaims(Array.isArray(d.claims) ? d.claims : []);
       setClaimSources(Array.isArray(d.sources) ? d.sources : []);
+      setClaimsSynthesized(Boolean(d.synthesized));
       if (disc?.suggestedCompetitors?.length) setCompetitors(disc.suggestedCompetitors.slice(0, 3));
     } catch {
       setClaims(["Enterprise-grade platform", "Secure and compliant deployment"]);
@@ -126,7 +145,7 @@ export function IntakeWizard({
                 className="w-full text-[14px] pl-9 pr-3 py-2.5 focus-ring rounded-[9px] outline-none"
                 placeholder="e.g. Intercom"
                 value={vendor}
-                onChange={(e) => setVendor(e.target.value)}
+                onChange={(e) => onVendorChange(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && findVendor()}
               />
             </div>
@@ -240,6 +259,19 @@ export function IntakeWizard({
             title={`Claims ${vendor} makes`}
             sub="Exa scraped these from the vendor's own pages. Edit, remove, or add — each becomes one verification search."
           />
+
+          {!scraping && claimsSynthesized && (
+            <div
+              className="flex items-start gap-2 mt-4 px-3 py-2 rounded-lg text-[12px]"
+              style={{ background: "var(--elevated-soft)", border: "1px solid var(--elevated-line)", color: "var(--elevated)" }}
+            >
+              <Icons.help size={14} style={{ marginTop: 1, flexShrink: 0 }} />
+              <span>
+                <span className="font-semibold">Couldn&apos;t extract specific claims</span> from the public pages — these are
+                editable placeholders. Replace them with the vendor&apos;s actual claims before running.
+              </span>
+            </div>
+          )}
 
           {scraping ? (
             <Card className="mt-5">
@@ -483,6 +515,7 @@ function SampleNote({ notes }: { notes?: string }) {
 
 function Favicon({ domain }: { domain: string }) {
   const [err, setErr] = useState(false);
+  useEffect(() => setErr(false), [domain]); // recover when the domain changes
   if (!domain || err) {
     return (
       <span className="w-9 h-9 inline-flex items-center justify-center rounded-lg shrink-0" style={{ background: "var(--paper-2)", border: "1px solid var(--line)", color: "var(--ink-3)" }}>

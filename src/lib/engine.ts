@@ -3,7 +3,7 @@ import { runExaPlan } from "./exa";
 import { analyzeHeuristic } from "./analyze";
 import { refineWithLLM } from "./llm";
 import { buildSampleResult } from "./sample";
-import type { DiligenceRequest, DiligenceResult, Evidence, Stance } from "./types";
+import type { Competitor, DiligenceRequest, DiligenceResult, Evidence, Stance } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Orchestrator: brief -> Exa live search -> analysis -> structured result.
@@ -46,16 +46,28 @@ export async function runDiligence(req: DiligenceRequest): Promise<DiligenceResu
   const refined = await refineWithLLM(req, evidence);
   if (refined) {
     analysisMode = "llm";
+    const validClaimIds = new Set(refined.claims.map((c) => c.id));
     claims = refined.claims;
-    flags = refined.flags.length ? refined.flags : base.flags;
-    levers = refined.levers.length ? refined.levers : base.levers;
-    questions = refined.questions.length ? refined.questions : base.questions;
-    competitors = refined.competitors.length ? refined.competitors : base.competitors;
-    compareDims = refined.compareDims.length ? refined.compareDims : base.compareDims;
     proofScore = refined.proofScore;
     proofBand = refined.proofBand;
     verdict = refined.verdict;
     summary = refined.summary || base.summary;
+
+    // Flags/levers must reference real claim ids the model actually returned —
+    // drop dangling references rather than render broken links.
+    const cleanFlags = refined.flags.filter((f) => !f.claimId || validClaimIds.has(f.claimId));
+    flags = cleanFlags.length ? cleanFlags : base.flags;
+    const cleanLevers = refined.levers.map((l) => ({ ...l, basis: (l.basis || []).filter((b) => validClaimIds.has(b) || b.startsWith("e")) }));
+    levers = cleanLevers.length ? cleanLevers : base.levers;
+    questions = refined.questions.length ? refined.questions : base.questions;
+
+    // Competitor table + its dimensions must travel TOGETHER and be well-formed,
+    // or we keep the heuristic table (mismatched dims/rows render as blanks).
+    if (isValidComparison(refined.competitors, refined.compareDims, req)) {
+      competitors = refined.competitors;
+      compareDims = refined.compareDims;
+    }
+
     // Re-stance evidence from the model's judgement.
     for (const e of evidence) {
       const s = refined.stance[e.id] as Stance | undefined;
@@ -103,6 +115,19 @@ export async function runDiligence(req: DiligenceRequest): Promise<DiligenceResu
 
 function tagSample(r: DiligenceResult, note: string): DiligenceResult {
   return { ...r, meta: { ...r.meta, mode: "sample", notes: note } };
+}
+
+/** The LLM competitor table is only usable if it includes the subject vendor and
+ *  every row covers every dimension with a valid strength. Otherwise the UI
+ *  renders blank cells, so we fall back to the heuristic table. */
+function isValidComparison(competitors: Competitor[], dims: string[], req: DiligenceRequest): boolean {
+  if (!Array.isArray(competitors) || competitors.length === 0 || !Array.isArray(dims) || dims.length === 0) return false;
+  const subject = competitors.find((c) => c.subject) || competitors[0];
+  if (!subject || !subject.name) return false;
+  const ok = (s: unknown) => s === "strong" || s === "mixed" || s === "weak";
+  return competitors.every(
+    (c) => c && c.name && c.rows && dims.every((d) => c.rows[d] && typeof c.rows[d].v === "string" && ok(c.rows[d].s)),
+  ) && subject.name.toLowerCase().includes(req.vendor.toLowerCase().split(/\s+/)[0]);
 }
 
 function buildCrm(

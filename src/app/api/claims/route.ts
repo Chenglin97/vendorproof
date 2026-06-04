@@ -22,16 +22,17 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const vendor = String(body?.vendor ?? "").trim();
+  const vendor = String(body?.vendor ?? "").trim().slice(0, 120);
   if (!vendor) return NextResponse.json({ error: "A vendor name is required." }, { status: 400 });
 
   const key = process.env.EXA_API_KEY?.trim();
   if (!key) return NextResponse.json(SAMPLE_CLAIMS);
 
   try {
-    const c = await discoverClaims(key, vendor, String(body?.domain ?? ""), String(body?.category ?? ""));
+    const c = await discoverClaims(key, vendor, String(body?.domain ?? "").trim().slice(0, 120), String(body?.category ?? "").trim().slice(0, 120));
     return NextResponse.json({ ...c, mode: "live" });
-  } catch {
+  } catch (err) {
+    console.error("[claims] failed:", err);
     return NextResponse.json(SAMPLE_CLAIMS);
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 import React, { useState } from "react";
-import { Button, Card, Icons } from "./ui";
+import { Button, Card, Icons, copyText } from "./ui";
 import type { DiligenceResult } from "@/lib/types";
 
 export function Integration({ result }: { result: DiligenceResult }) {
@@ -102,12 +102,10 @@ function CodeCard({
 }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(code);
+    const ok = await copyText(code);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* noop */
     }
   };
   const download = () => {

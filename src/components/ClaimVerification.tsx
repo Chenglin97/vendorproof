@@ -152,6 +152,7 @@ export function ClaimVerification({
               <button
                 key={f}
                 onClick={() => setFilter(f)}
+                aria-pressed={filter === f}
                 className={cx("text-[11px] px-2 py-1 rounded-md font-medium capitalize focus-ring transition-all")}
                 style={
                   filter === f

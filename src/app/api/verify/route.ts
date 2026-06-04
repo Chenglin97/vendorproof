@@ -7,35 +7,39 @@ export const maxDuration = 60;
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const clamp = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
+
 function normalize(body: unknown): DiligenceRequest | { error: string } {
   const b = (body ?? {}) as Record<string, unknown>;
-  const vendor = String(b.vendor ?? "").trim();
+  const vendor = clamp(b.vendor, 120);
   if (!vendor) return { error: "A vendor name is required." };
 
   const claimsRaw = b.claims;
-  const claims = Array.isArray(claimsRaw)
-    ? claimsRaw.map((c) => String(c).trim()).filter(Boolean)
-    : String(claimsRaw ?? "")
-        .split("\n")
-        .map((c) => c.trim())
-        .filter(Boolean);
+  const claims = (Array.isArray(claimsRaw)
+    ? claimsRaw.map((c) => String(c))
+    : String(claimsRaw ?? "").split("\n")
+  )
+    .map((c) => c.trim().slice(0, 200))
+    .filter(Boolean);
   if (claims.length === 0) return { error: "At least one claim is required." };
 
   const competitorsRaw = b.competitors;
-  const competitors = Array.isArray(competitorsRaw)
-    ? competitorsRaw.map((c) => String(c).trim()).filter(Boolean)
-    : String(competitorsRaw ?? "")
-        .split(/[\n,]/)
-        .map((c) => c.trim())
-        .filter(Boolean);
+  const competitors = (Array.isArray(competitorsRaw)
+    ? competitorsRaw.map((c) => String(c))
+    : String(competitorsRaw ?? "").split(/[\n,]/)
+  )
+    .map((c) => c.trim().slice(0, 80))
+    .filter(Boolean)
+    // Drop a competitor that is just the vendor again (defeats the impostor filter).
+    .filter((c) => c.toLowerCase() !== vendor.toLowerCase());
 
   return {
     vendor,
-    domain: String(b.domain ?? "").trim(),
-    category: String(b.category ?? "").trim(),
-    buyerContext: String(b.buyerContext ?? "").trim(),
+    domain: clamp(b.domain, 120),
+    category: clamp(b.category, 120),
+    buyerContext: clamp(b.buyerContext, 500),
     claims: claims.slice(0, 8),
-    competitors: competitors.slice(0, 4),
+    competitors: Array.from(new Set(competitors)).slice(0, 4),
   };
 }
 
@@ -54,10 +58,9 @@ export async function POST(req: Request) {
     const result = await runDiligence(norm);
     return NextResponse.json(result);
   } catch (err) {
-    return NextResponse.json(
-      { error: `Diligence failed: ${(err as Error).message}` },
-      { status: 500 },
-    );
+    // Log detail server-side; return a generic message (no internal leakage).
+    console.error("[verify] diligence failed:", err);
+    return NextResponse.json({ error: "Diligence failed. Please try again." }, { status: 500 });
   }
 }
 

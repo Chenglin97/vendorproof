@@ -39,6 +39,10 @@ export default function Page() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Verification failed.");
+      // Guard against a malformed payload before we dereference nested fields.
+      if (!data || !data.meta || !Array.isArray(data.claims) || !Array.isArray(data.evidence)) {
+        throw new Error("The verification response was incomplete. Please try again.");
+      }
       setResult(data as DiligenceResult);
       setView("results");
     } catch (e) {

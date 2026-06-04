@@ -82,10 +82,12 @@ export function ResultsView({ result, onReset }: { result: DiligenceResult; onRe
           {result.meta.mode === "sample" && <ModeBanner notes={result.meta.notes} />}
 
           {/* tabs */}
-          <div className="flex items-center gap-1 mt-4">
+          <div className="flex items-center gap-1 mt-4" role="tablist">
             {tabs.map((t) => (
               <button
                 key={t.id}
+                role="tab"
+                aria-selected={tab === t.id}
                 onClick={() => setTab(t.id)}
                 className={cx("relative text-[13px] font-medium px-3 py-2.5 focus-ring transition-colors")}
                 style={{ color: tab === t.id ? "var(--ink)" : "var(--ink-3)" }}

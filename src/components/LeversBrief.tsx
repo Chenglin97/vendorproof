@@ -1,10 +1,10 @@
 "use client";
 import React, { useState } from "react";
-import { Button, Card, Icons, cx } from "./ui";
+import { Button, Card, Icons, copyText, cx } from "./ui";
 import type { DiligenceResult } from "@/lib/types";
 
 export function LeversBrief({ result }: { result: DiligenceResult }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
 
   const copySummary = async () => {
     const text =
@@ -16,13 +16,9 @@ export function LeversBrief({ result }: { result: DiligenceResult }) {
       result.levers.map((l, i) => `${i + 1}. ${l.title} — ${l.detail}`).join("\n") +
       `\n\nQuestions for the vendor:\n` +
       result.questions.map((q, i) => `${i + 1}. ${q}`).join("\n");
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-      /* clipboard unavailable */
-    }
+    const ok = await copyText(text);
+    setCopyState(ok ? "ok" : "fail");
+    setTimeout(() => setCopyState("idle"), 1800);
   };
 
   return (
@@ -95,8 +91,8 @@ export function LeversBrief({ result }: { result: DiligenceResult }) {
             <span className="text-[13px] font-semibold">Procurement-ready summary</span>
           </div>
           <Button variant="ghost" size="sm" onClick={copySummary}>
-            {copied ? <Icons.check size={13} style={{ color: "var(--ok)" }} /> : <Icons.copy size={13} />}
-            {copied ? "Copied" : "Copy for CRM"}
+            {copyState === "ok" ? <Icons.check size={13} style={{ color: "var(--ok)" }} /> : <Icons.copy size={13} />}
+            {copyState === "ok" ? "Copied" : copyState === "fail" ? "Press ⌘C to copy" : "Copy for CRM"}
           </Button>
         </div>
         <div className="p-4">

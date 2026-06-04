@@ -21,7 +21,7 @@ const SAMPLE_DISCOVERY = {
 export async function POST(req: Request) {
   let vendor = "";
   try {
-    vendor = String(((await req.json()) as { vendor?: string })?.vendor ?? "").trim();
+    vendor = String(((await req.json()) as { vendor?: string })?.vendor ?? "").trim().slice(0, 120);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
@@ -34,6 +34,7 @@ export async function POST(req: Request) {
     const d = await discoverVendor(key, vendor);
     return NextResponse.json({ ...d, mode: "live" });
   } catch (err) {
-    return NextResponse.json({ ...SAMPLE_DISCOVERY, notes: `Live discovery failed (${(err as Error).message}); showing the sample.` });
+    console.error("[discover] failed:", err);
+    return NextResponse.json({ ...SAMPLE_DISCOVERY, notes: "Live discovery failed; showing the sample. Add or check EXA_API_KEY." });
   }
 }

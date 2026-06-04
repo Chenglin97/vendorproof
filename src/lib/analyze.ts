@@ -1,4 +1,5 @@
 import type { RawResult } from "./exa";
+import { isVendorDomain, rootDomain } from "./domain";
 import type {
   Claim,
   Competitor,
@@ -22,7 +23,11 @@ import type {
 // guarantees the app still yields defensible structure with zero extra keys.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const NEG = /\b(no|not|lack|without|missing|none|absen|unclear|limited|fails?|cannot|isn'?t|doesn'?t|unable|gap|concern|problem|issue|complaint|outage|breach)\b/i;
+// High-precision *refutation* signals only. Earlier this matched bare
+// "no/not/limited/issue/concern", which fire constantly in normal security and
+// fintech copy and produced false "contradicted" verdicts (e.g. Plaid). We now
+// require diligence-meaningful negatives or explicit negations of a capability.
+const NEG = /(\bbreach(ed|es)?\b|\boutage\b|\bdowntime\b|\bvulnerabilit|\blawsuit\b|\bsued\b|\bdata loss\b|\bleaked\b|\bfined?\b|\bpenalt|\brecall\b|no (named|public|known|known )?(bank|customer|reference|evidence|case)|\bnot (compliant|certified|available|supported)\b|\blacks?\b|\blacking\b|\bfailed to\b|\bdoes not\b|\bdoesn'?t\b|\bcannot\b|\bcan'?t\b|\bno (public|known)\b|without (a |an )?(soc|iso|sla|certification))/i;
 const POS = /\b(certif|compliant|soc ?2|iso ?27001|trusted by|customers? include|case study|named|supports?|provides?|enables?|integrat|encrypt|available|published|guarantee|sla)\b/i;
 
 function classifyType(r: RawResult, vendorRoot: string, competitorNames: string[]): EvidenceType {
@@ -38,21 +43,22 @@ function classifyType(r: RawResult, vendorRoot: string, competitorNames: string[
   return r.intent;
 }
 
-function stanceOf(r: RawResult, type: EvidenceType, isVendor: boolean): Stance {
-  const blob = `${r.highlight} ${r.summary} ${r.text}`.slice(0, 600);
+function stanceOf(r: RawResult, isVendor: boolean): Stance {
+  const blob = clean(`${r.highlight} ${r.summary} ${r.text}`).slice(0, 600);
   const neg = NEG.test(blob);
   const pos = POS.test(blob);
-  // A vendor's own page asserting capability is primary support, unless it
-  // explicitly contradicts (rare on a vendor's own site).
-  if (isVendor && !neg) return "support";
-  if (type === "review" && neg) return "refute";
-  if (neg && !pos) return "refute";
-  if (pos && !neg) return "support";
+  // A vendor's own page asserts the claim — treat it as (weak) self-support, and
+  // never let it refute itself. The verdict logic separately requires INDEPENDENT
+  // corroboration before a non-self-documenting claim can be "verified".
+  if (isVendor) return "support";
+  if (neg && !pos) return "refute"; // a clear third-party negative
+  if (neg && pos) return "neutral"; // mixed third-party signal
+  if (pos) return "support";
   return "neutral";
 }
 
 function authorLabel(type: EvidenceType, domain: string, vendorRoot: string): string {
-  const isVendor = domain.includes(vendorRoot);
+  const isVendor = isVendorDomain(domain, vendorRoot);
   switch (type) {
     case "security": return isVendor ? "Vendor · Trust Center" : "Security reference";
     case "docs": return isVendor ? "Vendor · Docs" : "Technical docs";
@@ -95,10 +101,6 @@ export interface HeuristicOutput {
   summary: string;
 }
 
-function rootDomain(domain: string): string {
-  return domain.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "").trim();
-}
-
 export function analyzeHeuristic(req: DiligenceRequest, raw: RawResult[]): HeuristicOutput {
   const vendorRoot = rootDomain(req.domain) || req.vendor.toLowerCase().split(/\s+/)[0];
 
@@ -107,8 +109,8 @@ export function analyzeHeuristic(req: DiligenceRequest, raw: RawResult[]): Heuri
     .sort((a, b) => b.score - a.score)
     .map((r, i) => {
       const type = classifyType(r, vendorRoot, req.competitors);
-      const isVendor = Boolean(vendorRoot) && (r.domain === vendorRoot || r.domain.endsWith("." + vendorRoot));
-      const stance = stanceOf(r, type, isVendor);
+      const isVendor = isVendorDomain(r.domain, vendorRoot);
+      const stance = stanceOf(r, isVendor);
       const snippet = clean(r.highlight || r.summary || r.text || "").slice(0, 280);
       return {
         id: `e${i + 1}`,
@@ -159,26 +161,39 @@ export function analyzeHeuristic(req: DiligenceRequest, raw: RawResult[]): Heuri
     const support = ev.filter((e) => e.stance === "support");
     const refute = ev.filter((e) => e.stance === "refute");
     const topRel = ev.reduce((m, e) => Math.max(m, e.relevance), 0);
-    // Is this a self-documenting claim (security / docs / pricing), where the
-    // vendor's own page is the primary source of truth?
+    // Separate the vendor's own assertions from INDEPENDENT (third-party) proof.
+    const vendorSupport = support.filter((e) => isVendorDomain(e.domain, vendorRoot));
+    const indepSupport = support.filter((e) => !isVendorDomain(e.domain, vendorRoot));
+    // Self-documenting claims (security / docs / pricing): the vendor's own trust
+    // center / docs / pricing page IS the authoritative source of truth.
     const want = intentForClaim(text);
     const selfDocumenting = want === "security" || want === "docs" || want === "pricing";
-    const vendorSupport = support.filter((e) => e.author.startsWith("Vendor"));
+    const typedVendorSource = vendorSupport.some((e) => e.type === want || e.type === "security" || e.type === "docs");
 
     let verdict: Verdict;
     let confidence: Confidence;
-    if (ev.length === 0) {
+    if (ev.length === 0 || (support.length === 0 && refute.length === 0)) {
+      // No usable signal either way.
       verdict = "unverified";
       confidence = "Low";
-    } else if (refute.length > support.length && refute.length >= 1) {
+    } else if (support.length === 0 && refute.length >= 1) {
+      // The only public signal is a credible negative.
       verdict = "contradicted";
       confidence = refute.length >= 2 ? "High" : "Medium";
-    } else if ((selfDocumenting && vendorSupport.length >= 1 && refute.length === 0) || (support.length >= 2 && refute.length === 0)) {
-      // Self-documenting claim backed by the vendor's own authoritative page,
-      // or independently corroborated by 2+ sources.
+    } else if (refute.length >= 2 && refute.length > support.length) {
+      verdict = "contradicted";
+      confidence = "High";
+    } else if (selfDocumenting && vendorSupport.length >= 1 && typedVendorSource && refute.length === 0) {
+      // e.g. SOC 2 on the vendor's own trust center -> verified.
       verdict = "verified";
-      confidence = support.length >= 2 && topRel >= 0.55 ? "High" : "Medium";
+      confidence = indepSupport.length >= 1 && topRel >= 0.5 ? "High" : "Medium";
+    } else if (indepSupport.length >= 1 && refute.length === 0) {
+      // Non-self-documenting claim (adoption / results) corroborated independently.
+      verdict = "verified";
+      confidence = (indepSupport.length >= 2 || vendorSupport.length >= 1) && topRel >= 0.5 ? "High" : "Medium";
     } else if (support.length >= 1) {
+      // Some support but not independently corroborated (vendor-only for an
+      // adoption claim), or mixed support + refute -> partial.
       verdict = "partial";
       confidence = "Medium";
     } else {
@@ -213,8 +228,12 @@ export function analyzeHeuristic(req: DiligenceRequest, raw: RawResult[]): Heuri
   const proofScore = claims.length
     ? Math.round((claims.reduce((s, c) => s + w[c.verdict], 0) / claims.length) * 100)
     : 0;
-  const proofBand: "Strong" | "Mixed" | "Weak" =
+  const nContradicted = claims.filter((c) => c.verdict === "contradicted").length;
+  let proofBand: "Strong" | "Mixed" | "Weak" =
     proofScore >= 70 ? "Strong" : proofScore >= 40 ? "Mixed" : "Weak";
+  // A contradicted claim caps the band — you can't call a vendor "Strong" while
+  // the public web actively refutes one of its claims.
+  if (nContradicted > 0 && proofBand === "Strong") proofBand = "Mixed";
 
   // 4) Risk flags from weak claims.
   const flags: RiskFlag[] = claims
@@ -274,18 +293,24 @@ export function analyzeHeuristic(req: DiligenceRequest, raw: RawResult[]): Heuri
   const nVer = claims.filter((c) => c.verdict === "verified").length;
   const nPart = claims.filter((c) => c.verdict === "partial").length;
   const nUnver = claims.filter((c) => c.verdict === "unverified" || c.verdict === "contradicted").length;
-  const verdict =
-    proofBand === "Strong"
-      ? "Proceed — low diligence risk"
-      : proofBand === "Mixed"
-      ? "Proceed to pilot — with conditions"
-      : "Hold — material evidence gaps";
-  const summary =
-    `${req.vendor} clears ${nVer} of ${claims.length} claims with public evidence` +
-    `${nPart ? `, ${nPart} partial` : ""}${nUnver ? `, and ${nUnver} unverified` : ""}. ` +
-    (nUnver
-      ? `The unverified claims — and the absence of public proof behind them — are the strongest source of negotiation leverage for ${req.buyerContext || "the buyer"}.`
-      : `Evidence is strong; remaining leverage is commercial.`);
+  // Honesty guard: if most claims have no public evidence at all, don't emit a
+  // confident go/no-go off a near-empty base.
+  const claimsWithEvidence = claims.filter((c) => c.evidence.length > 0).length;
+  const inconclusive = claims.length > 0 && claimsWithEvidence < Math.ceil(claims.length / 2);
+  const verdict = inconclusive
+    ? "Inconclusive — insufficient public evidence to assess"
+    : proofBand === "Strong"
+    ? "Proceed — low diligence risk"
+    : proofBand === "Mixed"
+    ? "Proceed to pilot — with conditions"
+    : "Hold — material evidence gaps";
+  const summary = inconclusive
+    ? `Exa surfaced little public evidence for ${req.vendor} — only ${claimsWithEvidence} of ${claims.length} claims had any supporting source. Treat this as a starting point: request primary documentation directly, or refine the vendor domain and re-run.`
+    : `${req.vendor} clears ${nVer} of ${claims.length} claims with public evidence` +
+      `${nPart ? `, ${nPart} partial` : ""}${nUnver ? `, and ${nUnver} unverified` : ""}. ` +
+      (nUnver
+        ? `The unverified claims — and the absence of public proof behind them — are the strongest source of negotiation leverage for ${req.buyerContext || "the buyer"}.`
+        : `Evidence is strong; remaining leverage is commercial.`);
 
   return {
     claims,
@@ -305,15 +330,18 @@ export function analyzeHeuristic(req: DiligenceRequest, raw: RawResult[]): Heuri
 function intentForClaim(claim: string): EvidenceType {
   const c = claim.toLowerCase();
   if (/(secur|complian|soc ?2|iso|encrypt|gdpr|hipaa|audit|privacy)/.test(c)) return "security";
-  if (/(integrat|api|crm|sdk|deploy|webhook|connect)/.test(c)) return "docs";
-  if (/(cost|price|pricing|tco|cheaper|roi|reduce)/.test(c)) return "pricing";
-  if (/(bank|financial|enterprise|customer|adopt|reference)/.test(c)) return "casestudy";
+  if (/(integrat|\bapi\b|crm|sdk|deploy|webhook|connect)/.test(c)) return "docs";
+  // Outcome claims ("reduce volume", "improve resolution") are NOT self-documenting
+  // pricing claims — they need third-party proof, so route them to casestudy.
+  if (/(reduce|improve|increase|faster|boost|save time|productivity|resolution|deflect)/.test(c)) return "casestudy";
+  if (/(\bcost\b|\bprice\b|pricing|\btco\b|cheaper|\broi\b|total cost)/.test(c)) return "pricing";
+  if (/(bank|financial|enterprise|customer|adopt|reference|trusted)/.test(c)) return "casestudy";
   return "docs";
 }
 
 function missingFor(claim: string): string {
   const c = claim.toLowerCase();
-  if (/(bank|financial|adopt|reference|customer)/.test(c)) return "A named financial-services reference customer";
+  if (/(bank|financial|adopt|reference|customer)/.test(c)) return "A named reference customer in a comparable sector";
   if (/(secur|complian|soc ?2|iso)/.test(c)) return "A current SOC 2 / ISO report or trust-center attestation";
   if (/(cost|price|tco|reduce)/.test(c)) return "Public pricing or a written TCO model";
   if (/(real-?time|latency|sla|uptime)/.test(c)) return "A published latency / uptime SLA";
@@ -331,27 +359,43 @@ function buildComparison(
   vendorRoot: string,
   claims: Claim[],
 ): { compareDims: string[]; competitors: Competitor[] } {
-  const compareDims = ["FSI references", "Security page", "Pricing transparency", "Docs depth", "Public evidence"];
+  const compareDims = ["Named references", "Security / trust", "Pricing transparency", "Docs depth", "Public evidence"];
   const entities = [req.vendor, ...req.competitors.slice(0, 3)];
+  // Neutral "not assessed" cell — used when we simply gathered no evidence for a
+  // given entity, rather than alarming everyone with a wall of red "None found".
+  const unknown = { v: "—", s: "mixed" as const };
 
   const competitors: Competitor[] = entities.map((name, idx) => {
     const isSubject = idx === 0;
-    const key = name.toLowerCase().split(/\s+/)[0];
-    const own = evidence.filter((e) =>
-      isSubject ? e.domain.includes(vendorRoot) || e.claimId : e.title.toLowerCase().includes(key) || e.domain.includes(key),
-    );
+    const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const own = evidence.filter((e) => {
+      // The SUBJECT counts only its OWN-domain evidence — never claim-linked
+      // third-party or competitor sources (that previously inflated its row).
+      if (isSubject) return isVendorDomain(e.domain, vendorRoot);
+      if (key.length < 3) return false;
+      const hostKey = e.domain.replace(/[^a-z0-9]/g, "");
+      const titleKey = e.title.toLowerCase().replace(/[^a-z0-9]/g, "");
+      return hostKey.includes(key) || titleKey.includes(key);
+    });
+
+    if (own.length === 0) {
+      const rows = Object.fromEntries(compareDims.map((d) => [d, unknown])) as Competitor["rows"];
+      return { name, subject: isSubject, rows };
+    }
+
     const has = (pred: (e: Evidence) => boolean) => own.some(pred);
-    const fsi = has((e) => e.type === "casestudy" && /(bank|financ|insur|fintech)/i.test(e.title + e.snippet));
+    const refs = has((e) => (e.type === "casestudy" || e.type === "competitor") && /(bank|financ|insur|fintech|enterprise|customer|trusted)/i.test(e.title + e.snippet));
     const sec = has((e) => e.type === "security");
     const price = has((e) => e.type === "pricing");
     const docs = own.filter((e) => e.type === "docs").length;
 
     const rows: Competitor["rows"] = {
-      "FSI references": fsi ? { v: "Found", s: "strong" } : { v: "None found", s: "weak" },
-      "Security page": sec ? { v: "Public", s: "strong" } : { v: "Not found", s: "mixed" },
-      "Pricing transparency": price ? { v: "Public", s: "strong" } : { v: "Gated", s: "weak" },
-      "Docs depth": docs >= 2 ? { v: "Deep", s: "strong" } : docs === 1 ? { v: "Some", s: "mixed" } : { v: "Thin", s: "weak" },
-      "Public evidence": own.length >= 3 ? { v: `${own.length} sources`, s: "strong" } : own.length >= 1 ? { v: `${own.length} sources`, s: "mixed" } : { v: "None", s: "weak" },
+      "Named references": refs ? { v: "Found", s: "strong" } : unknown,
+      "Security / trust": sec ? { v: "Public", s: "strong" } : unknown,
+      "Pricing transparency": price ? { v: "Public", s: "strong" } : unknown,
+      "Docs depth": docs >= 2 ? { v: "Deep", s: "strong" } : docs === 1 ? { v: "Some", s: "mixed" } : unknown,
+      "Public evidence":
+        own.length >= 3 ? { v: `${own.length} sources`, s: "strong" } : { v: `${own.length} source${own.length === 1 ? "" : "s"}`, s: "mixed" },
     };
     return { name, subject: isSubject, rows };
   });
@@ -364,7 +408,7 @@ function buildQuestions(req: DiligenceRequest, claims: Claim[]): string[] {
   for (const c of claims) {
     if (c.verdict === "verified") continue;
     const t = c.text.toLowerCase();
-    if (/(bank|financial|adopt|reference|customer)/.test(t)) qs.push("Can you provide two named financial-services reference customers we can call?");
+    if (/(bank|financial|adopt|reference|customer)/.test(t)) qs.push("Can you provide two named reference customers in our sector we can call?");
     else if (/(secur|complian|soc ?2|iso)/.test(t)) qs.push("Will you share your most recent SOC 2 Type II report and pen-test summary under NDA?");
     else if (/(cost|price|tco|reduce)/.test(t)) qs.push("What does a usage-based quote look like at our volume, and how does TCO compare to the incumbent?");
     else if (/(real-?time|latency|sla|uptime)/.test(t)) qs.push("What is your contractual latency / uptime SLA, and does it cover all channels?");

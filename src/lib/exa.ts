@@ -1,5 +1,6 @@
 import "server-only";
 import Exa from "exa-js";
+import { hostOf, rootDomain } from "./domain";
 import type { DiligenceRequest, EvidenceType } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,12 +24,12 @@ export interface PlannedQuery {
   numResults: number;
 }
 
-function rootDomain(domain: string): string {
-  return domain
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .replace(/\/.*$/, "")
-    .trim();
+/** Race an Exa call against a timeout so one slow query can't stall the plan. */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`Exa query timed out: ${label}`)), ms)),
+  ]);
 }
 
 /** Build the targeted query plan from the diligence brief. */
@@ -144,14 +145,6 @@ export interface ExaRunOutput {
   representative: { request: Record<string, unknown>; response: Record<string, unknown> } | null;
 }
 
-function domainOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-}
-
 /**
  * Execute the query plan against Exa, in parallel, and flatten + dedupe results.
  * Throws if the Exa call fails so the caller can fall back to sample mode.
@@ -179,7 +172,7 @@ export async function runExaPlan(
       if (pq.includeDomains) opts.includeDomains = pq.includeDomains;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const res: any = await exa.searchAndContents(pq.query, opts as any);
+      const res: any = await withTimeout(exa.searchAndContents(pq.query, opts as any), 20_000, pq.id);
 
       if (typeof res?.costDollars?.total === "number") costDollars += res.costDollars.total;
       else if (typeof res?.costDollars === "number") costDollars += res.costDollars;
@@ -205,21 +198,24 @@ export async function runExaPlan(
         };
       }
 
-      const out: RawResult[] = (res?.results ?? []).map((r: any) => ({
-        queryId: pq.id,
-        claimIndex: pq.claimIndex,
-        intent: pq.intent,
-        query: pq.query,
-        title: r.title ?? r.url ?? "Untitled source",
-        url: r.url,
-        domain: domainOf(r.url),
-        publishedDate: r.publishedDate ?? null,
-        author: r.author ?? null,
-        score: typeof r.score === "number" ? r.score : 0.5,
-        text: (r.text ?? "").slice(0, 1200),
-        highlight: Array.isArray(r.highlights) && r.highlights[0] ? r.highlights[0] : "",
-        summary: r.summary ?? "",
-      }));
+      // Drop results with no URL — they have no citation and crash the drawer.
+      const out: RawResult[] = (res?.results ?? [])
+        .filter((r: any) => r?.url)
+        .map((r: any) => ({
+          queryId: pq.id,
+          claimIndex: pq.claimIndex,
+          intent: pq.intent,
+          query: pq.query,
+          title: r.title ?? r.url ?? "Untitled source",
+          url: r.url,
+          domain: hostOf(r.url),
+          publishedDate: r.publishedDate ?? null,
+          author: r.author ?? null,
+          score: typeof r.score === "number" ? r.score : 0.5,
+          text: (r.text ?? "").slice(0, 1200),
+          highlight: Array.isArray(r.highlights) && r.highlights[0] ? r.highlights[0] : "",
+          summary: r.summary ?? "",
+        }));
       return out;
     }),
   );

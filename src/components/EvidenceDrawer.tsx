@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { Chip, Icons, VerdictPill, fmtDate } from "./ui";
 import { EVIDENCE_TYPE_META } from "@/lib/types";
 import type { Claim, Evidence } from "@/lib/types";
@@ -19,10 +19,21 @@ export function EvidenceDrawer({
   claim: Claim | null;
   onClose: () => void;
 }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<Element | null>(null);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    if (evidence) window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    if (evidence) {
+      openerRef.current = document.activeElement; // remember the trigger
+      window.addEventListener("keydown", onKey);
+      closeRef.current?.focus(); // move focus into the dialog
+    }
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      // restore focus to the element that opened the drawer
+      if (openerRef.current instanceof HTMLElement) openerRef.current.focus();
+    };
   }, [evidence, onClose]);
 
   if (!evidence) return null;
@@ -33,6 +44,9 @@ export function EvidenceDrawer({
     <>
       <div className="fixed inset-0 z-40 vp-fade" style={{ background: "rgba(11,11,13,0.32)" }} onClick={onClose} />
       <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="evidence-drawer-title"
         className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-[440px] flex flex-col vp-fade"
         style={{ background: "var(--paper)", borderLeft: "1px solid var(--line)", boxShadow: "var(--sh-lg)", animationName: "vp-fade-up" }}
       >
@@ -41,7 +55,7 @@ export function EvidenceDrawer({
             <Icons.link size={14} style={{ color: "var(--ink-3)" }} />
             <span className="eyebrow">Evidence source</span>
           </div>
-          <button onClick={onClose} className="p-1 rounded-md focus-ring hover:bg-[var(--paper-2)]" style={{ color: "var(--ink-3)" }} title="Close (Esc)">
+          <button ref={closeRef} onClick={onClose} aria-label="Close evidence panel" className="p-1 rounded-md focus-ring hover:bg-[var(--paper-2)]" style={{ color: "var(--ink-3)" }} title="Close (Esc)">
             <Icons.x size={18} />
           </button>
         </header>
@@ -60,7 +74,7 @@ export function EvidenceDrawer({
             </span>
           </div>
 
-          <h3 className="text-[15px] font-semibold leading-snug mt-3" style={{ color: "var(--ink)" }}>
+          <h3 id="evidence-drawer-title" className="text-[15px] font-semibold leading-snug mt-3" style={{ color: "var(--ink)" }}>
             {evidence.title}
           </h3>
           <a
