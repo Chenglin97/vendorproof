@@ -1,0 +1,163 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   VendorProof — Exa-facing theme tokens
+   Clean, technical, near-monochrome enterprise SaaS.
+   Geist (UI) + JetBrains Mono (code/tokens). Single cobalt accent.
+   Semantic color reserved exclusively for risk/opportunity signals.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* surfaces */
+  --canvas: #fafaf8;
+  --paper: #ffffff;
+  --paper-2: #f6f6f3;
+  --ink-surface: #0b0b0d;
+  --ink-surface-2: #15151a;
+
+  /* text */
+  --ink: #0b0b0d;
+  --ink-2: #55555e;
+  --ink-3: #8a8a93;
+  --ink-4: #b4b4bb;
+  --on-ink: #f4f4f2;
+  --on-ink-2: #9a9aa4;
+
+  /* lines */
+  --line: #e7e7e2;
+  --line-2: #efefeb;
+  --line-ink: #26262c;
+
+  /* accent — Exa cobalt, used sparingly */
+  --accent: #1f53ff;
+  --accent-press: #1741d6;
+  --accent-soft: #ecf0ff;
+  --accent-line: #c9d5ff;
+  --accent-ink: #1a3fbf;
+
+  /* signal semantics — ONLY for risk/opportunity */
+  --risk: #dc2626;
+  --risk-soft: #fdf0f0;
+  --risk-line: #f4cfcf;
+  --elevated: #c2700a;
+  --elevated-soft: #fcf5e9;
+  --elevated-line: #efd8ae;
+  --ok: #138a4e;
+  --ok-soft: #edf8f1;
+  --ok-line: #bfe6cd;
+  --info: #1f53ff;
+
+  /* radius */
+  --r-xs: 5px;
+  --r-sm: 7px;
+  --r-md: 9px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-pill: 999px;
+
+  /* shadow */
+  --sh-xs: 0 1px 1px rgba(11, 11, 13, 0.04);
+  --sh-sm: 0 1px 2px rgba(11, 11, 13, 0.06), 0 0 0 1px rgba(11, 11, 13, 0.02);
+  --sh-md: 0 6px 20px -6px rgba(11, 11, 13, 0.12), 0 0 0 1px rgba(11, 11, 13, 0.03);
+  --sh-lg: 0 18px 48px -12px rgba(11, 11, 13, 0.22);
+  --sh-focus: 0 0 0 3px rgba(31, 83, 255, 0.18);
+
+  /* fonts wired from next/font in layout.tsx */
+  --font-ui: var(--font-geist), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: var(--canvas);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* scrollbars — quiet */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d9d9d3;
+  border: 3px solid var(--canvas);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c4c4bd;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* shared atoms */
+.mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "ss01", "cv01";
+}
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: var(--sh-focus);
+}
+
+/* keyframes */
+@keyframes vp-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes vp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes vp-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+@keyframes vp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.vp-fade-up {
+  animation: vp-fade-up var(--dur, 280ms) cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.vp-fade {
+  animation: vp-fade 240ms ease both;
+}
