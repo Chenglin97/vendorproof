@@ -14,9 +14,9 @@ import type { NextRequest } from "next/server";
 
 const WINDOW_MS = 60_000;
 const PER_MIN: Record<string, number> = {
-  "/api/verify": 8,
-  "/api/discover": 25,
-  "/api/claims": 25,
+  "/api/verify": 5,
+  "/api/discover": 15,
+  "/api/claims": 15,
 };
 const MAX_BODY_BYTES = 16_000;
 
