@@ -29,6 +29,8 @@ import type {
 // require diligence-meaningful negatives or explicit negations of a capability.
 const NEG = /(\bbreach(ed|es)?\b|\boutage\b|\bdowntime\b|\bvulnerabilit|\blawsuit\b|\bsued\b|\bdata loss\b|\bleaked\b|\bfined?\b|\bpenalt|\brecall\b|no (named|public|known|known )?(bank|customer|reference|evidence|case)|\bnot (compliant|certified|available|supported)\b|\blacks?\b|\blacking\b|\bfailed to\b|\bdoes not\b|\bdoesn'?t\b|\bcannot\b|\bcan'?t\b|\bno (public|known)\b|without (a |an )?(soc|iso|sla|certification))/i;
 const POS = /\b(certif|compliant|soc ?2|iso ?27001|trusted by|customers? include|case study|named|supports?|provides?|enables?|integrat|encrypt|available|published|guarantee|sla)\b/i;
+// Subjective / superlative marketing language a vendor's OWN page can never "verify".
+const MARKETING = /\b(best|#1|number[- ]?one|leading|industry[- ]?leading|world[- ]?class|highest|most|fastest|smartest|easiest|only|complete|seamless|powerful|unmatched|superior|cutting[- ]?edge|revolutionary|unrival)/i;
 
 function classifyType(r: RawResult, vendorRoot: string, competitorNames: string[]): EvidenceType {
   const u = (r.url + " " + r.title).toLowerCase();
@@ -164,36 +166,43 @@ export function analyzeHeuristic(req: DiligenceRequest, raw: RawResult[]): Heuri
     // Separate the vendor's own assertions from INDEPENDENT (third-party) proof.
     const vendorSupport = support.filter((e) => isVendorDomain(e.domain, vendorRoot));
     const indepSupport = support.filter((e) => !isVendorDomain(e.domain, vendorRoot));
-    // Self-documenting claims (security / docs / pricing): the vendor's own trust
-    // center / docs / pricing page IS the authoritative source of truth.
-    const want = intentForClaim(text);
-    const selfDocumenting = want === "security" || want === "docs" || want === "pricing";
-    const typedVendorSource = vendorSupport.some((e) => e.type === want || e.type === "security" || e.type === "docs");
+    // A vendor's OWN page can settle an objective, attestable fact (a security
+    // certification, a documented integration, public pricing/specs) — but never
+    // a superlative or an outcome/adoption claim, which need INDEPENDENT proof.
+    // This is what stops "extract claims from the vendor's site, verify them
+    // against the vendor's site" from rubber-stamping everything to 100%.
+    const marketing = MARKETING.test(text);
+    // The ONLY thing a vendor's own page legitimately verifies is a formal,
+    // checkable attestation — a security certification (ideally with a report on
+    // the trust center). Every capability / platform / outcome claim is just the
+    // vendor's word until an INDEPENDENT source corroborates it.
+    const attestable = /\b(soc ?2|iso ?27001|gdpr|hipaa|pci[- ]?dss|fedramp|csa star)\b/i.test(text);
+    const typedVendorSource = vendorSupport.some((e) => e.type === "security" || e.type === "docs");
 
     let verdict: Verdict;
     let confidence: Confidence;
     if (ev.length === 0 || (support.length === 0 && refute.length === 0)) {
-      // No usable signal either way.
       verdict = "unverified";
       confidence = "Low";
     } else if (support.length === 0 && refute.length >= 1) {
-      // The only public signal is a credible negative.
       verdict = "contradicted";
       confidence = refute.length >= 2 ? "High" : "Medium";
     } else if (refute.length >= 2 && refute.length > support.length) {
       verdict = "contradicted";
       confidence = "High";
-    } else if (selfDocumenting && vendorSupport.length >= 1 && typedVendorSource && refute.length === 0) {
-      // e.g. SOC 2 on the vendor's own trust center -> verified.
+    } else if (indepSupport.length >= 2 && refute.length === 0 && !marketing) {
+      // Independently corroborated by 2+ non-vendor sources — the gold standard.
+      // One stray "supporting" article isn't enough to verify a vendor's claim.
       verdict = "verified";
-      confidence = indepSupport.length >= 1 && topRel >= 0.5 ? "High" : "Medium";
-    } else if (indepSupport.length >= 1 && refute.length === 0) {
-      // Non-self-documenting claim (adoption / results) corroborated independently.
+      confidence = topRel >= 0.6 ? "High" : "Medium";
+    } else if (attestable && vendorSupport.length >= 1 && typedVendorSource && refute.length === 0) {
+      // An objective fact documented on the vendor's own authoritative page
+      // (e.g. SOC 2 on the trust center) — verified, but only Medium confidence.
       verdict = "verified";
-      confidence = (indepSupport.length >= 2 || vendorSupport.length >= 1) && topRel >= 0.5 ? "High" : "Medium";
+      confidence = "Medium";
     } else if (support.length >= 1) {
-      // Some support but not independently corroborated (vendor-only for an
-      // adoption claim), or mixed support + refute -> partial.
+      // The vendor only asserts it — marketing, an unconfirmed outcome, or no
+      // independent source. This is the negotiation leverage, not proof.
       verdict = "partial";
       confidence = "Medium";
     } else {
@@ -209,7 +218,7 @@ export function analyzeHeuristic(req: DiligenceRequest, raw: RawResult[]): Heuri
       verdict === "unverified" || verdict === "contradicted"
         ? missingFor(text)
         : verdict === "partial"
-        ? "Stronger primary evidence or a contractual guarantee"
+        ? "Independent confirmation — only the vendor's own pages assert this"
         : null;
 
     const finding =

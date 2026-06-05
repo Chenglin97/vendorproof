@@ -73,6 +73,8 @@ export interface RiskFlag {
   title: string;
   detail: string;
   claimId: string | null;
+  /** source URL for adverse signals surfaced from the public web (the "dirt") */
+  url?: string | null;
 }
 
 export interface Lever {

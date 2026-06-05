@@ -2,8 +2,9 @@ import "server-only";
 import { runExaPlan } from "./exa";
 import { analyzeHeuristic } from "./analyze";
 import { refineWithLLM } from "./llm";
+import { discoverAdverse } from "./intake";
 import { buildSampleResult } from "./sample";
-import type { Competitor, DiligenceRequest, DiligenceResult, Evidence, Stance } from "./types";
+import type { Competitor, DiligenceRequest, DiligenceResult, Evidence, RiskFlag, Stance } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Orchestrator: brief -> Exa live search -> analysis -> structured result.
@@ -20,6 +21,10 @@ export async function runDiligence(req: DiligenceRequest): Promise<DiligenceResu
   if (!apiKey) {
     return tagSample(buildSampleResult(runAt), "No EXA_API_KEY configured — showing the curated Intercom sample.");
   }
+
+  // Kick off the adverse-intelligence sweep in parallel with the search plan —
+  // a deeper Exa Answer dig for the complaints/incidents the vendor hides.
+  const advPromise = discoverAdverse(apiKey, req.vendor, req.domain).catch(() => ({ findings: [] as { text: string; url?: string; domain?: string }[] }));
 
   let exa;
   try {
@@ -75,8 +80,20 @@ export async function runDiligence(req: DiligenceRequest): Promise<DiligenceResu
     }
   }
 
+  // Merge the adverse signals (cited to the public web) ahead of the
+  // claim-derived flags — the hidden "dirt" is the most material risk.
+  const adv = await advPromise;
+  const adverseFlags: RiskFlag[] = adv.findings.slice(0, 4).map((f) => ({
+    kind: "risk" as const,
+    title: f.text,
+    detail: f.domain ? `Reported on ${f.domain} — not on the vendor's own pages.` : "Reported on the public web, not the vendor's own pages.",
+    claimId: null,
+    url: f.url ?? null,
+  }));
+  const flagsOut = dedupeFlags([...adverseFlags, ...flags]).slice(0, 6);
+
   const crm = buildCrm(req, { claims, proofScore, proofBand });
-  const handoff = buildHandoff(req, { claims, proofScore, proofBand, flags, evidence });
+  const handoff = buildHandoff(req, { claims, proofScore, proofBand, flags: flagsOut, evidence });
 
   return {
     meta: {
@@ -100,7 +117,7 @@ export async function runDiligence(req: DiligenceRequest): Promise<DiligenceResu
     evidence,
     compareDims,
     competitors,
-    flags,
+    flags: flagsOut,
     levers,
     questions,
     crm,
@@ -115,6 +132,16 @@ export async function runDiligence(req: DiligenceRequest): Promise<DiligenceResu
 
 function tagSample(r: DiligenceResult, note: string): DiligenceResult {
   return { ...r, meta: { ...r.meta, mode: "sample", notes: note } };
+}
+
+function dedupeFlags(flags: RiskFlag[]): RiskFlag[] {
+  const seen = new Set<string>();
+  return flags.filter((f) => {
+    const key = f.title.toLowerCase().slice(0, 40);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /** The LLM competitor table is only usable if it includes the subject vendor and
@@ -185,6 +212,7 @@ function buildHandoff(
       severity: f.kind === "risk" ? "high" : "medium",
       title: f.title,
       claim: f.claimId,
+      source: f.url ?? undefined,
     })),
     nextActions: a.claims
       .filter((c) => c.verdict !== "verified")

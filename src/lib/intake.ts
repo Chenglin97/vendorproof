@@ -250,3 +250,63 @@ export async function discoverClaims(apiKey: string, vendor: string, domain: str
     .slice(0, 5);
   return { claims: padded, sources, synthesized: true };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Adverse intelligence — a deeper Exa Answer sweep that hunts for the things a
+// vendor will NOT put on its own pages: complaints, outages, security incidents,
+// lawsuits, hidden costs, controversies. This is the "find the dirt" half of
+// diligence; results become risk flags, cited to the public web.
+// ─────────────────────────────────────────────────────────────────────────────
+// A real concern, not a neutral company description.
+const ADVERSE_SIGNAL =
+  /(problem|complain|outage|down(time)?|breach|lawsuit|sued|incident|\bissue|\bbug|fail|lock[- ]?in|hidden|overcharge|expensive|pricing|price hike|billing|unrespons|poor|inadequate|forced|restructur|\blimit|\black|missing|no option|cannot|unable|controvers|concern|risk|slow|buggy|crash|leak|fine[ds]?|penalt|churn|switch(ed)? away|difficult|frustrat|disappoint|delay|broke|glitch|scam|mislead|refund|unreliable)/i;
+
+export interface AdverseFinding {
+  text: string;
+  url?: string;
+  domain?: string;
+}
+
+export async function discoverAdverse(apiKey: string, vendor: string, domain: string): Promise<{ findings: AdverseFinding[] }> {
+  const exa = new Exa(apiKey);
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ans: any = await withTimeout(
+      (exa as { answer: (q: string) => Promise<{ answer?: string; citations?: { url?: string }[] }> }).answer(
+        `Act as a skeptical due-diligence analyst. Searching reviews, forums, and the press, what specific problems, customer complaints, limitations, outages, security incidents, lawsuits, hidden costs, or controversies have been reported about ${vendor} (${domain})? List the 3 to 5 most material concerns — one per line, each a short specific statement followed by its source number in brackets like [1]. No introduction. If genuinely nothing material is found, reply exactly "none found".`,
+      ),
+      35_000,
+    );
+    const text = String(ans?.answer ?? "");
+    if (/^\s*none found/i.test(text)) return { findings: [] };
+    const cites: { url?: string }[] = Array.isArray(ans?.citations) ? ans.citations : [];
+
+    const findings: AdverseFinding[] = [];
+    const seen = new Set<string>();
+    for (const raw of text.split("\n")) {
+      // Map the [n] markers on this line back to their citation URLs.
+      const refs = Array.from(raw.matchAll(/\[(\d+)\]/g)).map((m) => parseInt(m[1], 10) - 1);
+      const s = raw
+        .replace(/\[\d+\]/g, "")
+        .replace(/^\s*(\d+[.)]|[-*•—])\s*/, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/[.;:]+$/, "")
+        .trim();
+      if (s.length < 10 || s.length > 150) continue;
+      if (/^(none found|here are|the following|in summary|below)/i.test(s)) continue;
+      if (!/[a-z]/.test(s)) continue;
+      // Keep only genuine concerns — drop neutral descriptions ("X is a platform…").
+      if (!ADVERSE_SIGNAL.test(s)) continue;
+      const key = s.toLowerCase().slice(0, 40);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const url = refs.map((i) => cites[i]?.url).find(Boolean) || cites[findings.length]?.url;
+      findings.push({ text: s, url: url || undefined, domain: url ? hostOf(url) : undefined });
+      if (findings.length >= 5) break;
+    }
+    return { findings };
+  } catch {
+    return { findings: [] };
+  }
+}

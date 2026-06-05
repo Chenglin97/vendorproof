@@ -122,13 +122,28 @@ export function ClaimVerification({
             {result.flags.map((f, i) => {
               const Ico = f.kind === "risk" ? Icons.alert : Icons.help;
               const color = f.kind === "risk" ? "var(--risk)" : "var(--elevated)";
+              const href = f.url ? (f.url.startsWith("http") ? f.url : `https://${f.url}`) : null;
               return (
                 <div key={i} className="flex items-start gap-2">
                   <Ico size={14} style={{ color, marginTop: 1, flexShrink: 0 }} />
                   <div className="text-[12px] leading-snug">
-                    <span className="font-semibold" style={{ color: "var(--ink)" }}>
-                      {f.title}
-                    </span>
+                    {href ? (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold inline-flex items-baseline gap-1 focus-ring rounded hover:underline"
+                        style={{ color: "var(--ink)" }}
+                        title="Open the source"
+                      >
+                        {f.title}
+                        <Icons.external size={11} style={{ color: "var(--ink-3)", alignSelf: "center" }} />
+                      </a>
+                    ) : (
+                      <span className="font-semibold" style={{ color: "var(--ink)" }}>
+                        {f.title}
+                      </span>
+                    )}
                     <span style={{ color: "var(--ink-2)" }}> — {f.detail}</span>
                   </div>
                 </div>
@@ -166,13 +181,16 @@ export function ClaimVerification({
           </div>
         </div>
 
-        {/* header row (desktop) */}
-        <div className="hidden md:grid px-4 py-2 text-[10px] eyebrow" style={{ gridTemplateColumns: "1fr 110px 90px 130px 80px", borderBottom: "1px solid var(--line-2)" }}>
-          <span>Claim</span>
-          <span>Verdict</span>
-          <span>Confidence</span>
-          <span>Evidence</span>
-          <span>Risk</span>
+        {/* header row (desktop) — mirrors the row's "1fr auto" + inner 5-col grid so labels line up */}
+        <div className="hidden md:grid px-4 py-2 gap-2" style={{ gridTemplateColumns: "1fr auto", borderBottom: "1px solid var(--line-2)" }}>
+          <div className="grid items-center gap-2 text-[10px] eyebrow" style={{ gridTemplateColumns: "1fr 110px 90px 130px 80px" }}>
+            <span>Claim</span>
+            <span>Verdict</span>
+            <span>Confidence</span>
+            <span>Evidence</span>
+            <span>Risk</span>
+          </div>
+          <Icons.arrow size={15} style={{ opacity: 0 }} />
         </div>
 
         <div>
